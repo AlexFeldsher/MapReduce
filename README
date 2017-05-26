@@ -1,0 +1,107 @@
+feld
+Alexander Feldsher (310289079)
+EX: 3
+
+FILES:
+README					-- This file
+Search.cpp				-- Implementation of Task1
+Search.h				-- Header file for Search.cpp
+Makefile				-- running make produces a Search executable and MapReduceFramework.a library
+MapReduceFramework.cpp	-- Map-reduce framework implementation
+
+
+DESIGN:
+Search design:
+	Search creates a list of pairs of <key1, value1> objects where the keys are the folder names
+	given as program arguments and the values are null.
+	Tt calls the map reduce framework with the list.
+	The Map method receives a pair of folder name and null object, it opens the directory
+	and iterates over each file in the directory and emits a pair of <key2, value2> where the key2
+	object is the file name and value2 object equals 1 if the substring given as a program argument
+	was found in the file name or 0 if the substring wasn't found in the file name.
+	The Reduce method receives a file name and a list of value2 objects, it sums all the value2 objects
+	and emits a pair of <key3, value3> objects where key3 is the file name and value3 is the sum of the
+	value2 objects list.
+	The map reduce framework call returns a list of <key3, value3> pairs sorted by key3 (file name).
+	Then each key3 (filename) is printed value3 time.
+
+MapReduceFramework design:
+	ExecMap threads and the Shuffle threads are created, each ExecMap thread has its own data structure
+	eliminating the need to lock a single data structure during a thread write. But at the same time
+	the writing to the data structure is locked when the shuffle thread reads it.
+	Each ExecMap thread notifies the Shuffle thread that there's is new data to "shuffle" by incrementing
+	a semaphore.
+	The main thread is notified by the ExecMap threads to try to terminate the Shuffle thread by
+	incrementing a counter for the number of terminated ExecMap threads and a pthread_cond_t object.
+	After the ExecMap and Shuffle threads are done, the ExecReduce threads are created. Each thread
+	has its own data structure eliminating the need for locking a single data structure during a write.
+	When the ExecReduce threads are terminated the separate data structures are merged and sorted by the
+	main thread and it's returned to the calling function.
+
+ANSWERS:
+1. It can't be implemented with a pthread_cond_wait because the Shuffle thread could be getting
+	pthread_cond_signal while "shuffling" data. Then returning to the shuffle_cond_wait waiting for
+	new data. If the ExecMap thread were terminated, no one can inform the Shuffle thread that new data
+	is available to "shuffle" creating a deadlock.
+	By using a pthread_cond_timedwait if a pthread_cond_signal was sent during a "shuffle", the Shuffle
+	thread won't wait forever for the signal to come again. Allowing it to continue and shuffle the rest
+	of the data and then terminate.
+
+	shuffle()
+	{
+	    while (not all Map threads were terminated)
+	    {
+	        pthread_cond_timedwait(cond, mutex, time);
+	        //**.
+	        shuffle data
+	        */
+	    }
+	}
+
+
+2. I would use multiThreadLevel=8, It'll create 8 ExecMap threads, 1 Shuffle thread,
+	and 8 ExecReduce threads. The OS can spread the thread 8 ExecMap/ExecReduce threads to each core,
+	the shuffle thread will fight for resources with the ExecMap threads, but all the reduce threads can
+	utilize the entire CPU.
+
+3.
+a. The single thread single process implementation
+	A. Doesn't utilize mutli-core CPUs.
+	B. No concurrency so there's no ability to create a sophisticated scheduler based on internal data.
+	C. 0 communication time between thread/processes since there's no thread/process communication.
+	D. It's imposible to continue wile the program is waiting for disk.
+	E. Slow, since the CPU capabilities are not used and the entire program is blocked when waiting for disk
+b. Posix thread library
+	A. Utilization of multiple cores depends on the operating system. It's possible that the operating system
+		will limit all the threads to a single core, depending on the OS scheduler.
+	B. The scheduler that manages the threads is the operating system scheduler, it's not possible to
+		create a scheduler based on internal data.
+	C. Communication time between threads is fast since they share memory.
+	D. It's possible to progress with other threads while a thread is blocked.
+	E. Depends on the OS scheduler and the CPU. Can be fast if all threads are spread out to all the
+		available CPU cores.
+c. User level threads
+	A. Doesn't utilize multi-core CPUs, since user level threads run in a single process.
+	B. There's the ability to create a sophisticated scheduler based on internal data.
+	C. Fast communication time between threads, faster then posix threads communication.
+	D. It's not possible to progress while a thread is blocked by a system call.
+	E. Fast on sigle core systems. Doesn't utilize multiple cores, on multi core CPU posix threads probably
+		faster.
+d. Multi-processes
+	A. Utilized multi-core CPUs.
+	B. The OS schedualer runs the processes, no ability to create a sophisticated scheduler based on
+		internal data.
+	C. Slow communication time compared to all the previous implementations since processes run in separate
+		memory spaces.
+	D. It's possible to progress while a certain process is blocked.
+	E. On muli core systems, slower than posix threads and faster then single process and user threads.
+
+4. Processes don't share memory space so the stack, heap, and global variable aren't shared.
+	Kernel level threads share the heap, and global variables.
+	User level threads can share the stack, global variable, and heap.
+
+5. Deadlock is when a thread is waiting for a mutex to be unlocked, and the program is unable to progress.
+	Example: Thread 1 took the lock and terminated without releasing it, blocking all the other threads.
+	Livelock is a number of running threads that block one another while constantly changing states
+	without doing usefull work. Could happend when there's a circular dependency between threads.
+
